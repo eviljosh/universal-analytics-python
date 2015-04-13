@@ -3,8 +3,11 @@ from __future__ import print_function
 from setuptools import setup
 import sys
 
-VERSION=open('commit-version').read().strip()
-print("Preparing version {0}\n".format(VERSION or "NOTFOUND"), file=sys.stderr)
+try:
+    VERSION=open('commit-version').read().strip()
+    print("Preparing version {0}\n".format(VERSION or "NOTFOUND"), file=sys.stderr)
+except Exception:
+    VERSION = 'NOTFOUND'
 
 
 try:
@@ -30,7 +33,15 @@ setup(
     license = 'BSD',
     packages = ["UniversalAnalytics"],
 
-    install_requires = ['future', 'requests', 'six'],
+    install_requires = [
+        'future',
+        'requests',
+        'six'
+    ],
+    
+    tests_require = [
+        mock
+    ],
 
     zip_safe = True,
 )
