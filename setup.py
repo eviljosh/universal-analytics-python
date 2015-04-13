@@ -38,10 +38,6 @@ setup(
         'requests',
         'six'
     ],
-    
-    tests_require = [
-        mock
-    ],
 
     zip_safe = True,
 )
