@@ -30,7 +30,7 @@ setup(
     license = 'BSD',
     packages = ["UniversalAnalytics"],
 
-    install_requires = ['future', 'requests', 'six'],
+    install_requires = ['requests', 'six'],
 
     zip_safe = True,
 )

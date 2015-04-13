@@ -11,9 +11,6 @@
 
 from __future__ import absolute_import
 
-from future.standard_library import install_aliases
-install_aliases()
-
 import unittest
 try:
     # try python 3

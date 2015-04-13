@@ -1,6 +1,6 @@
 # Differences within this fork
 
-This fork tries to render this library usable under Python 2 and 3.  It requires future, requests, and six.
+This fork tries to render this library usable under Python 2 and 3.  It requires requests, and six.
 
 It is a work in progress and is not yet tested in production environments under 2 or 3. At some point, if it turns out to be stable enough, I may try to merge it or something like it back into the ancestral repo, if the analytics-pros folks are interested.
 
