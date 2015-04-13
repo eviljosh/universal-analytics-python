@@ -1,3 +1,16 @@
+# Differences within this fork
+
+This fork tries to render this library usable under Python 2 and 3.  It requires future, requests, and six.
+
+It eliminates the use of HTTPLogger for testing and uses the mock library instead.  This prevents the test suite from making actual requests, but requires that one trust the requests library to do its job.
+
+Install this fork with:
+
+    pip install -e git+https://github.com/eviljosh/universal-analytics-python.git#egg=universal-analytics-python
+
+The remaining documentation is unchanged.
+
+
 # Universal Analytics for Python
 
 This library provides a Python interface to Google Analytics, supporting the Universal Analytics Measurement Protocol, with an interface modeled (loosely) after Google's `analytics.js`.
@@ -73,6 +86,10 @@ Example:
 
 We're particularly interested in the scope of throttling for back-end tracking for users who have a defined use-case for it. Please [contact us](mailto:opensource@analyticspros.com) if you have such a use-case.
 
+
+# Tests
+
+Run unit tests with: `python -m unittest discover test/`
 
 # License
 
