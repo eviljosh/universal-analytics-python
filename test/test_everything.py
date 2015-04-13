@@ -9,40 +9,32 @@
 # assistance in strategy, implementation, or auditing existing work.
 ###############################################################################
 
+from __future__ import absolute_import
+
+from future.standard_library import install_aliases
+install_aliases()
+
 import unittest
-import urllib
+try:
+    # try python 3
+    from unittest.mock import call
+    from unittest.mock import patch
+except ImportError:
+    # fall back to python 2
+    from mock import call
+    from mock import patch
 
 from UniversalAnalytics import Tracker
-from UniversalAnalytics import HTTPLog
 
 
 class UAMPythonTestCase(unittest.TestCase):
     
     def setUp(self):
-        self._buffer = HTTPLog.StringIO()
-        HTTPLog.consume(self._buffer) # Capture HTTP output in readible fashion
-        Tracker.HTTPPost.debug() # Enabled debugging from urllib2
-        
         # Create the tracker
-        self.tracker = Tracker.create('UA-XXXXX-Y', use_post = True)
+        self.tracker = Tracker.create('UA-XXXXX-Y', client_id='123cid', use_post=True)
 
     def tearDown(self):
-        self._buffer.truncate()
         del self.tracker
-        del self._buffer
-
-    @classmethod
-    def url_quote(cls, value, safe_chars = ''):
-        return urllib.quote(value, safe_chars)
-
-
-    @property
-    def buffer(self):
-        return self._buffer.getvalue()
-
-    def reset(self):
-        self._buffer.truncate()
-
 
     def testTrackerOptionsBasic(self):
         self.assertEqual('UA-XXXXX-Y', self.tracker.params['tid'])  
@@ -58,49 +50,107 @@ class UAMPythonTestCase(unittest.TestCase):
         self.assertEqual(self.tracker.params['cm'], 'testing-medium')
         self.assertEqual(self.tracker.params['cs'], 'test-source')
 
-    def testSendPageview(self):
+    @patch('requests.post')
+    def testSendPageview(self, mock_requests_post):
         # Send a pageview
         self.tracker.send('pageview', '/test')
-        
-        self.assertIn('t=pageview', self.buffer)
-        self.assertIn('dp={0}'.format(self.url_quote('/test')), self.buffer)
-        self.reset()
 
+        mock_requests_post.assert_called_once_with(
+            'https://www.google-analytics.com/collect',
+            headers={'User-Agent': 'Analytics Pros - Universal Analytics (Python)'},
+            data={
+                'tid': 'UA-XXXXX-Y',
+                'cid': '123cid',
+                't': 'pageview',
+                'dp': '/test',
+                'v': 1
+            }
+        )
 
-    def testSendInteractiveEvent(self):
+    @patch('requests.post')
+    def testSendInteractiveEvent(self, mock_requests_post):
         # Send an event
         self.tracker.send('event', 'mycat', 'myact', 'mylbl', { 'noninteraction': 1, 'page': '/1' })
-        self.assertIn('t=event', self.buffer)
-        self.assertIn('ec=mycat', self.buffer)
-        self.assertIn('ea=myact', self.buffer)
-        self.assertIn('el=mylbl', self.buffer)
-        self.assertIn('ni=1', self.buffer)
-        self.assertIn('dp={0}'.format(self.url_quote('/1')), self.buffer)
 
-        self.reset()
+        mock_requests_post.assert_called_once_with(
+            'https://www.google-analytics.com/collect',
+            headers={'User-Agent': 'Analytics Pros - Universal Analytics (Python)'},
+            data={
+                'dp': '/1',
+                'ni': 1,
+                'ec': 'mycat',
+                't': 'event',
+                'cid': '123cid',
+                'ea': 'myact',
+                'v': 1,
+                'tid': 'UA-XXXXX-Y',
+                'el': 'mylbl'
+            }
+        )
 
-    def testSendUnicodeEvent(self):
+    @patch('requests.post')
+    def testSendUnicodeEvent(self, mock_requests_post):
 
         # Send unicode data:
         # As unicode
         self.tracker.send('event', u'câtēgøry', u'åctîõn', u'låbęl', u'válüē')
+
+        mock_requests_post.assert_called_once_with(
+            'https://www.google-analytics.com/collect',
+            headers={'User-Agent': 'Analytics Pros - Universal Analytics (Python)'},
+            data={
+                'el': u'låbęl',
+                't': 'event',
+                'ea': u'åctîõn',
+                'cid': '123cid',
+                'v': 1,
+                'ec': u'câtēgøry',
+                'tid': 'UA-XXXXX-Y'
+            }
+        )
+
+    @patch('requests.post')
+    def testSendUnicodeStringEvent(self, mock_requests_post):
+
+        # Send unicode data:
         # As str
         self.tracker.send('event', 'câtēgøry', 'åctîõn', 'låbęl', 'válüē')
-        
-        # TODO  write assertions for these...
-        # The output buffer should show both representations in UTF-8 for compatibility
 
+        mock_requests_post.assert_called_once_with(
+            'https://www.google-analytics.com/collect',
+            headers={'User-Agent': 'Analytics Pros - Universal Analytics (Python)'},
+            data={
+                'el': u'låbęl',
+                't': 'event',
+                'ea': u'åctîõn',
+                'cid': '123cid',
+                'v': 1,
+                'ec': u'câtēgøry',
+                'tid': 'UA-XXXXX-Y'
+            }
+        )
 
-    def testSocialHit(self):
+    @patch('requests.post')
+    def testSocialHit(self, mock_requests_post):
         # Send a social hit
         self.tracker.send('social', 'facebook', 'share', '/test#social')
-        self.assertIn('t=social', self.buffer)
-        self.assertIn('sn=facebook', self.buffer)
-        self.assertIn('sa=share', self.buffer)
-        self.assertIn('st={0}'.format(self.url_quote('/test#social')), self.buffer)
-        self.reset()
 
-    def testTransaction(self):
+        mock_requests_post.assert_called_once_with(
+            'https://www.google-analytics.com/collect',
+            headers={'User-Agent': 'Analytics Pros - Universal Analytics (Python)'},
+            data={
+                't': 'social',
+                'cid': '123cid',
+                'sn': 'facebook',
+                'sa': 'share',
+                'v': 1,
+                'tid': 'UA-XXXXX-Y',
+                'st': '/test#social'
+            }
+        )
+
+    @patch('requests.post')
+    def testTransaction(self, mock_requests_post):
 
         # Dispatch the item hit first (though this is somewhat unusual)
         self.tracker.send('item', {
@@ -110,6 +160,23 @@ class UAMPythonTestCase(unittest.TestCase):
             'itemCategory': 'hawaiian',
             'itemQuantity': 1
         }, hitage = 7200)
+
+        mock_requests_post.assert_called_once_with(
+            'https://www.google-analytics.com/collect',
+            headers={'User-Agent': 'Analytics Pros - Universal Analytics (Python)'},
+            data={
+                'iv': 'hawaiian',
+                'cid': '123cid',
+                'ti': '12345abc',
+                't': 'item',
+                'in': 'pizza',
+                'qt': 7200000,
+                'ic': 'abc',
+                'iq': 1.0,
+                'v': 1,
+                'tid': 'UA-XXXXX-Y'
+            }
+        )
 
         # Then the transaction hit...
         self.tracker.send('transaction', {
@@ -121,10 +188,60 @@ class UAMPythonTestCase(unittest.TestCase):
             'transactionCurrency': 'USD'
         }, hitage = 7200)
 
-    def testTimingAdjustedHits(self):
+        self.assertEqual(2, mock_requests_post.call_count)
+        mock_requests_post.assert_any_call(
+            'https://www.google-analytics.com/collect',
+            headers={'User-Agent': 'Analytics Pros - Universal Analytics (Python)'},
+            data={
+                'tt': 3.0,
+                'ti': '12345abc',
+                'cu': 'USD',
+                'ts': 0.45,
+                'tid': 'UA-XXXXX-Y',
+                'ta': 'phone order',
+                'cid': '123cid',
+                'qt': 7200000,
+                'tr': 28.0,
+                't': 'transaction',
+                'v': 1
+            }
+        )
+
+    @patch('requests.post')
+    def testTimingAdjustedHits(self, mock_requests_post):
 
         # A few more hits for good measure, testing real-time support for time offset
         self.tracker.send('pageview', '/test', { 'campaignName': 'testing2' }, hitage = 60 * 5) # 5 minutes ago
+
+        mock_requests_post.assert_called_once_with(
+            'https://www.google-analytics.com/collect',
+            headers={'User-Agent': 'Analytics Pros - Universal Analytics (Python)'},
+            data={
+                'cid': '123cid',
+                't': 'pageview',
+                'dp': '/test',
+                'qt': 300000,
+                'v': 1,
+                'cn': 'testing2',
+                'tid': 'UA-XXXXX-Y'
+            }
+        )
+
         self.tracker.send('pageview', '/test', { 'campaignName': 'testing3' }, hitage = 60 * 20) # 20 minutes ago
+
+        self.assertEqual(2, mock_requests_post.call_count)
+        mock_requests_post.assert_any_call(
+            'https://www.google-analytics.com/collect',
+            headers={'User-Agent': 'Analytics Pros - Universal Analytics (Python)'},
+            data={
+                'cid': '123cid',
+                't': 'pageview',
+                'dp': '/test',
+                'qt': 1200000,
+                'v': 1,
+                'cn': 'testing3',
+                'tid': 'UA-XXXXX-Y'
+            }
+        )
 
 # vim: set nowrap tabstop=4 shiftwidth=4 softtabstop=0 expandtab textwidth=0 filetype=python foldmethod=indent foldcolumn=4

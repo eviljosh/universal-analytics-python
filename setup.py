@@ -1,8 +1,10 @@
+from __future__ import absolute_import
+from __future__ import print_function
 from setuptools import setup
 import sys
 
 VERSION=open('commit-version').read().strip()
-print >>sys.stderr, "Preparing version {0}\n".format(VERSION or "NOTFOUND")
+print("Preparing version {0}\n".format(VERSION or "NOTFOUND"), file=sys.stderr)
 
 
 try:
@@ -28,7 +30,7 @@ setup(
     license = 'BSD',
     packages = ["UniversalAnalytics"],
 
-    install_requires = [],
+    install_requires = ['future', 'requests', 'six'],
 
     zip_safe = True,
 )

@@ -7,25 +7,22 @@
 # assistance in strategy, implementation, or auditing existing work.
 ###############################################################################
 
-from urllib2 import urlopen, build_opener, install_opener
-from urllib2 import Request, HTTPSHandler
-from urllib2 import URLError, HTTPError
-from urllib import urlencode
+from __future__ import absolute_import
 
-import random
 import datetime
 import time
 import uuid
 import hashlib
-import socket
-
+import six
+from six.moves import range
+import requests
 
 
 def generate_uuid(basedata = None):
     """ Provides a _random_ UUID with no input, or a UUID4-format MD5 checksum of any input data provided """
     if basedata is None:
         return str(uuid.uuid4())
-    elif isinstance(basedata, basestring):
+    elif isinstance(basedata, six.string_types):
         checksum = hashlib.md5(basedata).hexdigest()
         return '%8s-%4s-%4s-%4s-%12s' % (checksum[0:8], checksum[8:12], checksum[12:16], checksum[16:20], checksum[20:32])
 
@@ -44,7 +41,7 @@ class Time(datetime.datetime):
     def to_unix(cls, timestamp):
         """ Wrapper over time module to produce Unix epoch time as a float """
         if not isinstance(timestamp, datetime.datetime):
-            raise TypeError, 'Time.milliseconds expects a datetime object'
+            raise TypeError('Time.milliseconds expects a datetime object')
         base = time.mktime(timestamp.timetuple())
         return base
 
@@ -61,91 +58,21 @@ class Time(datetime.datetime):
         return (now - base) * 1000
 
 
-
-class HTTPRequest(object):
-    """ URL Construction and request handling abstraction.
-        This is not intended to be used outside this module.
-
-        Automates mapping of persistent state (i.e. query parameters)
-        onto transcient datasets for each query.
-    """
-
-    endpoint = 'https://www.google-analytics.com/collect'
-
-    
-    @staticmethod
-    def debug():
-        """ Activate debugging on urllib2 """
-        handler = HTTPSHandler(debuglevel = 1)
-        opener = build_opener(handler)
-        install_opener(opener)
-
-    # Store properties for all requests
-    def __init__(self, user_agent = None, *args, **opts):
-        self.user_agent = user_agent or 'Analytics Pros - Universal Analytics (Python)'
-
-
-    @classmethod
-    def fixUTF8(cls, data): # Ensure proper encoding for UA's servers...
-        """ Convert all strings to UTF-8 """
-        for key in data:
-            if isinstance(data[ key ], basestring):
-                data[ key ] = data[ key ].encode('utf-8')
-        return data
-
-
-
-    # Apply stored properties to the given dataset & POST to the configured endpoint 
-    def send(self, data):     
-        request = Request(
-                self.endpoint + '?' + urlencode(self.fixUTF8(data)), 
-                headers = {
-                    'User-Agent': self.user_agent
-                }
-            )
-        self.open(request)
-
-    def open(self, request):
-        try:
-            return urlopen(request)
-        except HTTPError as e:
-            return False
-        except URLError as e:
-            self.cache_request(request)
-            return False
-
-    def cache_request(self, request):
-        # TODO: implement a proper caching mechanism here for re-transmitting hits
-        # record = (Time.now(), request.get_full_url(), request.get_data(), request.headers)
-        pass
-
-
-
-
-class HTTPPost(HTTPRequest):
-
-    # Apply stored properties to the given dataset & POST to the configured endpoint 
-    def send(self, data):
-        request = Request(
-                self.endpoint, 
-                data = urlencode(self.fixUTF8(data)), 
-                headers = {
-                    'User-Agent': self.user_agent
-                }
-            )
-        self.open(request)
-
-
-
-
-
-
 class Tracker(object):
     """ Primary tracking interface for Universal Analytics """
+    endpoint = 'https://www.google-analytics.com/collect'
     params = None
     parameter_alias = {}
+    use_post = True
+    user_agent = None
     valid_hittypes = ('pageview', 'event', 'social', 'screenview', 'transaction', 'item', 'exception', 'timing')
- 
+
+    option_sequence = {
+        'pageview': [ (six.string_types, 'dp') ],
+        'event': [ (six.string_types, 'ec'), (six.string_types, 'ea'), (six.string_types, 'el'), (int, 'ev') ],
+        'social': [ (six.string_types, 'sn'), (six.string_types, 'sa'), (six.string_types, 'st') ],
+        'timing': [ (six.string_types, 'utc'), (six.string_types, 'utv'), (six.string_types, 'utt'), (six.string_types, 'utl') ]
+    }
 
     @classmethod
     def alias(cls, typemap, base, *names):
@@ -156,30 +83,20 @@ class Tracker(object):
 
     @classmethod
     def coerceParameter(cls, name, value = None):
-        if isinstance(name, basestring) and name[0] == '&':
+        if isinstance(name, six.string_types) and name[0] == '&':
             return name[1:], str(value)
         elif name in cls.parameter_alias:
             typecast, param_name = cls.parameter_alias.get(name)
             return param_name, typecast(value)
         else:
-            raise KeyError, 'Parameter "{0}" is not recognized'.format(name)
-
+            raise KeyError('Parameter "{0}" is not recognized'.format(name))
 
     def payload(self, data):
-        for key, value in data.iteritems():
+        for key, value in six.iteritems(data):
             try:
                 yield self.coerceParameter(key, value)
             except KeyError:
                 continue
-
-
-
-    option_sequence = {
-        'pageview': [ (basestring, 'dp') ],
-        'event': [ (basestring, 'ec'), (basestring, 'ea'), (basestring, 'el'), (int, 'ev') ],
-        'social': [ (basestring, 'sn'), (basestring, 'sa'), (basestring, 'st') ],
-        'timing': [ (basestring, 'utc'), (basestring, 'utv'), (basestring, 'utt'), (basestring, 'utl') ]
-    }
 
     @classmethod
     def consume_options(cls, data, hittype, args):
@@ -191,9 +108,6 @@ class Tracker(object):
                 if opt_position < len(args) and isinstance(args[opt_position], expected_type):
                     data[ optname ] = args[ opt_position ]
                 opt_position += 1
-        
-
-
 
     @classmethod
     def hittime(cls, timestamp = None, age = None, milliseconds = None):
@@ -205,19 +119,14 @@ class Tracker(object):
         if isinstance(age, (int, float)):
             return int(age * 1000) + (milliseconds or 0)
 
-  
-
     @property
     def account(self):
         return self.params.get('tid', None)
 
-
     def __init__(self, account, name = None, client_id = None, hash_client_id = False, user_id = None, user_agent = None, use_post = True):
     
-        if use_post is False:
-            self.http = HTTPRequest(user_agent = user_agent)
-        else: 
-            self.http = HTTPPost(user_agent = user_agent)
+        self.use_post = use_post
+        self.user_agent = user_agent or 'Analytics Pros - Universal Analytics (Python)'
 
         self.params = { 'v': 1, 'tid': account }
 
@@ -231,14 +140,12 @@ class Tracker(object):
         if user_id is not None:
             self.params[ 'uid' ] = user_id
 
-
     def set_timestamp(self, data):
         """ Interpret time-related options, apply queue-time parameter as needed """
         if 'hittime' in data: # an absolute timestamp
             data['qt'] = self.hittime(timestamp = data.pop('hittime', None))
         if 'hitage' in data: # a relative age (in seconds)
             data['qt'] = self.hittime(age = data.pop('hitage', None))
-
 
     def send(self, hittype, *args, **data):
         """ Transmit HTTP requests to Google Analytics using the measurement protocol """
@@ -254,7 +161,7 @@ class Tracker(object):
                 for key, val in self.payload(item):
                     data[ key ] = val
 
-        for k, v in self.params.iteritems(): # update only absent parameters
+        for k, v in six.iteritems(self.params): # update only absent parameters
             if k not in data:
                 data[ k ] = v
 
@@ -265,28 +172,37 @@ class Tracker(object):
             data[ 'cid' ] = generate_uuid(data[ 'cid' ])
 
         # Transmit the hit to Google...
-        self.http.send(data)
+        if self.use_post:
+            r = requests.post(
+                self.endpoint,
+                data=data,
+                headers={'User-Agent': self.user_agent}
+            )
+        else:
+            r = requests.get(
+                self.endpoint,
+                params=data,
+                headers={'User-Agent': self.user_agent}
+            )
 
-
-
+        response_code = int(r.status_code)
+        return 200 <= response_code < 300
 
     # Setting persistent attibutes of the session/hit/etc (inc. custom dimensions/metrics)
     def set(self, name, value = None):
         if isinstance(name, dict):
-            for key, value in name.iteritems():
+            for key, value in six.iteritems(name):
                 try:
                     param, value = self.coerceParameter(key, value)
                     self.params[param] = value
                 except KeyError:
                     pass 
-        elif isinstance(name, basestring):
+        elif isinstance(name, six.string_types):
             try:
                 param, value = self.coerceParameter(name, value)
                 self.params[param] = value
             except KeyError:
-                pass 
-
-
+                pass
 
     def __getitem__(self, name):
         param, value = self.coerceParameter(name, None)
@@ -301,10 +217,11 @@ class Tracker(object):
         if param in self.params:
             del self.params[param]
 
+
 def safe_unicode(obj):
     """ Safe convertion to the Unicode string version of the object """
     try:
-        return unicode(obj)
+        return six.text_type(obj)
     except UnicodeDecodeError:
         return obj.decode('utf-8')
 
@@ -403,7 +320,7 @@ for i in range(0,200):
 # Enhanced Ecommerce
 Tracker.alias(str, 'pa')  # Product action
 Tracker.alias(str, 'tcc')  # Coupon code
-Tracker.alias(unicode, 'pal')  # Product action list
+Tracker.alias(six.text_type, 'pal')  # Product action list
 Tracker.alias(int, 'cos')  # Checkout step
 Tracker.alias(str, 'col')  # Checkout step option
 
@@ -411,10 +328,10 @@ Tracker.alias(str, 'promoa')  # Promotion action
 
 for product_index in range(1, MAX_EC_PRODUCTS):
     Tracker.alias(str, 'pr{0}id'.format(product_index))  # Product SKU
-    Tracker.alias(unicode, 'pr{0}nm'.format(product_index))  # Product name
-    Tracker.alias(unicode, 'pr{0}br'.format(product_index))  # Product brand
-    Tracker.alias(unicode, 'pr{0}ca'.format(product_index))  # Product category
-    Tracker.alias(unicode, 'pr{0}va'.format(product_index))  # Product variant
+    Tracker.alias(six.text_type, 'pr{0}nm'.format(product_index))  # Product name
+    Tracker.alias(six.text_type, 'pr{0}br'.format(product_index))  # Product brand
+    Tracker.alias(six.text_type, 'pr{0}ca'.format(product_index))  # Product category
+    Tracker.alias(six.text_type, 'pr{0}va'.format(product_index))  # Product variant
     Tracker.alias(str, 'pr{0}pr'.format(product_index))  # Product price
     Tracker.alias(int, 'pr{0}qt'.format(product_index))  # Product quantity
     Tracker.alias(str, 'pr{0}cc'.format(product_index))  # Product coupon code
@@ -426,10 +343,10 @@ for product_index in range(1, MAX_EC_PRODUCTS):
 
     for list_index in range(1, MAX_EC_LISTS):
         Tracker.alias(str, 'il{0}pi{1}id'.format(list_index, product_index))  # Product impression SKU
-        Tracker.alias(unicode, 'il{0}pi{1}nm'.format(list_index, product_index))  # Product impression name
-        Tracker.alias(unicode, 'il{0}pi{1}br'.format(list_index, product_index))  # Product impression brand
-        Tracker.alias(unicode, 'il{0}pi{1}ca'.format(list_index, product_index))  # Product impression category
-        Tracker.alias(unicode, 'il{0}pi{1}va'.format(list_index, product_index))  # Product impression variant
+        Tracker.alias(six.text_type, 'il{0}pi{1}nm'.format(list_index, product_index))  # Product impression name
+        Tracker.alias(six.text_type, 'il{0}pi{1}br'.format(list_index, product_index))  # Product impression brand
+        Tracker.alias(six.text_type, 'il{0}pi{1}ca'.format(list_index, product_index))  # Product impression category
+        Tracker.alias(six.text_type, 'il{0}pi{1}va'.format(list_index, product_index))  # Product impression variant
         Tracker.alias(int, 'il{0}pi{1}ps'.format(list_index, product_index))  # Product impression position
         Tracker.alias(int, 'il{0}pi{1}pr'.format(list_index, product_index))  # Product impression price
 
@@ -438,11 +355,11 @@ for product_index in range(1, MAX_EC_PRODUCTS):
             Tracker.alias(int, 'il{0}pi{1}cm{2}'.format(list_index, product_index, custom_index))  # Product impression custom metric
 
 for list_index in range(1, MAX_EC_LISTS):
-    Tracker.alias(unicode, 'il{0}nm'.format(list_index))  # Product impression list name
+    Tracker.alias(six.text_type, 'il{0}nm'.format(list_index))  # Product impression list name
 
 for promotion_index in range(1, MAX_EC_PROMOTIONS):
     Tracker.alias(str, 'promo{0}id'.format(promotion_index))  # Promotion ID
-    Tracker.alias(unicode, 'promo{0}nm'.format(promotion_index))  # Promotion name
+    Tracker.alias(six.text_type, 'promo{0}nm'.format(promotion_index))  # Promotion name
     Tracker.alias(str, 'promo{0}cr'.format(promotion_index))  # Promotion creative
     Tracker.alias(str, 'promo{0}ps'.format(promotion_index))  # Promotion position
 
